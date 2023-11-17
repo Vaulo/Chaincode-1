@@ -57,10 +57,84 @@ type MyContract struct {
 
 // QueryBanco function to query data from MySQL and add transactions to the ledger
 func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) (*string, error) {
-	// ... seu código existente ...
+	// Conexão com o MySQL
+	db, err := sql.Open("mysql", "root:movepass@tcp(localhost:3306)/moveuff")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	// Query SQL
+	queryToday := `
+	SELECT 
+		departure.id AS Departure_Datetime, 
+		trips.totalDistance_km, 
+		trips.id AS TripID, 
+		arrival.id AS Arrival_Datetime
+	FROM trip_x_parkingslot_departures AS departure
+	JOIN trips ON departure.Trips_id = trips.id
+	JOIN trip_x_parkingslot_arrivals AS arrival ON arrival.Trips_id = trips.id
+	WHERE DATE(departure.id) = CURDATE() AND DATE(arrival.id) = CURDATE()
+`
+
+	// Executar a query
+	rows, err := db.Query(queryToday)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	// Variável para armazenar o dicionário JSON
+	resultDict := make(map[int]map[string]interface{})
+
+	// Variável para armazenar a soma de totalDistance_km
+	totalDistanceSum := 0.0
+
+	for rows.Next() {
+		var departureDatetime string // Modificado para usar string
+		var totalDistanceKm float64
+		var tripID int
+		var arrivalDatetime string // Modificado para usar string
+
+		// Ler os valores do resultado da query
+		err := rows.Scan(&departureDatetime, &totalDistanceKm, &tripID, &arrivalDatetime)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Criar um mapa com os dados da linha atual
+		rowData := map[string]interface{}{
+			"Departure_Datetime": departureDatetime,
+			"totalDistance_km":   totalDistanceKm,
+			"TripID":             tripID,
+			"Arrival_Datetime":   arrivalDatetime,
+		}
+
+		// Adicionar os dados ao objeto do dicionário JSON
+		resultDict[tripID] = rowData
+
+		// Somar o valor de totalDistance_km
+		totalDistanceSum += totalDistanceKm
+	}
+
+	// Verificar erros na iteração sobre as linhas
+	if err := rows.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	// Imprimir o dicionário JSON
+	jsonResult, err := json.MarshalIndent(resultDict, "", "    ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(jsonResult))
+
+	// Imprimir a soma de totalDistance_km
+	fmt.Printf("Soma de totalDistance_km: %.2f\n", totalDistanceSum)
 
 	return &jsonResult, nil
 }
+
 
 // AdicionarTransacao adiciona uma transação ao bloco atual
 func (mc *MyContract) AdicionarTransacao(ctx contractapi.TransactionContextInterface, data string) error {
