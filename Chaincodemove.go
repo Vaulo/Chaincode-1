@@ -55,8 +55,14 @@ type MyContract struct {
 	contractapi.Contract
 }
 
+func (mc *MyContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
+    // Pode adicionar lógica de inicialização do ledger aqui, se necessário
+    fmt.Println("Inicializando o ledger")
+    return nil
+}
+
 // QueryBanco function to query data from MySQL and add transactions to the ledger
-func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) (*[]byte, error) {
+func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([]byte, error) {
 	// Conexão com o MySQL
 	db, err := sql.Open("mysql", "root:movepass@tcp(localhost:3306)/moveuff")
 	if err != nil {
@@ -132,7 +138,7 @@ func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) (*
 	// Imprimir a soma de totalDistance_km
 	fmt.Printf("Soma de totalDistance_km: %.2f\n", totalDistanceSum)
 
-	return &jsonResult, nil
+	return nil, nil
 }
 
 
