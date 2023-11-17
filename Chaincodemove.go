@@ -130,7 +130,7 @@ func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) (*
 	// Imprimir a soma de totalDistance_km
 	fmt.Printf("Soma de totalDistance_km: %.2f\n", totalDistanceSum)
 
-	return jsonResult
+	return &jsonResult, nil
 }
 
 // AdicionarTransacao adiciona uma transação ao bloco atual
