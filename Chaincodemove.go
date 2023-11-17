@@ -56,7 +56,7 @@ type MyContract struct {
 }
 
 // QueryBanco function to query data from MySQL and add transactions to the ledger
-func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) (*string, error) {
+func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) (*[]byte, error) {
 	// Conexão com o MySQL
 	db, err := sql.Open("mysql", "root:movepass@tcp(localhost:3306)/moveuff")
 	if err != nil {
