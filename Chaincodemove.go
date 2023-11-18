@@ -14,6 +14,18 @@ import (
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
 
+func (mc *MyContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]byte, error) {
+    // Chamar a função QueryBanco para obter os dados
+    data, err := mc.QueryBanco(ctx)
+    if err != nil {
+        return nil, err
+    }
+
+    // Retornar os dados obtidos da consulta
+    return data, nil
+}
+
+
 // TripData struct para representar os dados de uma viagem
 type TripData struct {
 	DepartureDatetime string  `json:"Departure_Datetime"`
