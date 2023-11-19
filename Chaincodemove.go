@@ -102,17 +102,17 @@ func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([
 	}
 	defer rows.Close()
 
-	// Variável para armazenar o dicionário JSON
-	resultDict := make(map[int]map[string]interface{})
+	// Variável para armazenar o array JSON
+	var resultArray []map[string]interface{}
 
 	// Variável para armazenar a soma de totalDistance_km
 	totalDistanceSum := 0.0
 
 	for rows.Next() {
-		var departureDatetime string // Modificado para usar string
+		var departureDatetime string
 		var totalDistanceKm float64
 		var tripID int
-		var arrivalDatetime string // Modificado para usar string
+		var arrivalDatetime string
 
 		// Ler os valores do resultado da query
 		err := rows.Scan(&departureDatetime, &totalDistanceKm, &tripID, &arrivalDatetime)
@@ -128,8 +128,8 @@ func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([
 			"Arrival_Datetime":   arrivalDatetime,
 		}
 
-		// Adicionar os dados ao objeto do dicionário JSON
-		resultDict[tripID] = rowData
+		// Adicionar os dados ao array JSON
+		resultArray = append(resultArray, rowData)
 
 		// Somar o valor de totalDistance_km
 		totalDistanceSum += totalDistanceKm
@@ -140,8 +140,8 @@ func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([
 		log.Fatal(err)
 	}
 
-	// Imprimir o dicionário JSON
-	jsonResult, err := json.MarshalIndent(resultDict, "", "    ")
+	// Imprimir o array JSON
+	jsonResult, err := json.MarshalIndent(resultArray, "", "    ")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([
 	// Imprimir a soma de totalDistance_km
 	fmt.Printf("Soma de totalDistance_km: %.2f\n", totalDistanceSum)
 
-	return nil, nil
+	return jsonResult, nil
 }
 
 
