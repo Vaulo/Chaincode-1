@@ -250,11 +250,10 @@ func calcularHash(data []byte) string {
 func main() {
 	Chaincodemove, err := contractapi.NewChaincode(&MyContract{})
 	if err != nil {
-		fmt.Printf("Erro ao criar o chaincode: %s", err)
-		return
+		log.Panicf("Error creating asset-transfer-basic chaincode: %v", err)
 	}
 
 	if err := Chaincodemove.Start(); err != nil {
-		fmt.Printf("Erro ao iniciar o chaincode: %s", err)
+		log.Panicf("Error creating asset-transfer-basic chaincode: %v", err)
 	}
 }
