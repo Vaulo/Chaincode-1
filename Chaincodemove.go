@@ -73,6 +73,19 @@ func (mc *MyContract) InitLedger(ctx contractapi.TransactionContextInterface) er
     return nil
 }
 
+func (mc *MyContract) RegisterDataOnBlockchain(ctx contractapi.TransactionContextInterface, data []byte) error {
+    // Gere um ID único para a transação
+    txID := ctx.GetStub().GetTxID()
+
+    // Registre os dados na blockchain usando o ID da transação como chave
+    err := ctx.GetStub().PutState(txID, data)
+    if err != nil {
+        return fmt.Errorf("falha ao registrar os dados na blockchain: %v", err)
+    }
+
+    return nil
+}
+
 // QueryBanco function to query data from MySQL and add transactions to the ledger
 func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([]byte, error) {
 	// Conexão com o MySQL
@@ -149,6 +162,11 @@ func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([
 
 	// Imprimir a soma de totalDistance_km
 	fmt.Printf("Soma de totalDistance_km: %.2f\n", totalDistanceSum)
+
+    	err = mc.RegisterDataOnBlockchain(ctx, jsonResult)
+   	if err != nil {
+        	log.Fatal(err)
+   	}
 
 	return jsonResult, nil
 }
