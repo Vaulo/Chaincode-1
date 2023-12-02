@@ -1,281 +1,274 @@
-// main.go 
-package main
+package chaincode
 
 import (
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"log"
-	"time"
+        "database/sql"
+        "encoding/json"
+        "fmt"
 
-	"crypto/sha256"
-	"encoding/hex"
-
-	"github.com/hyperledger/fabric-contract-api-go/contractapi"
+        _ "github.com/go-sql-driver/mysql"
+        "github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
 
-func (mc *MyContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]byte, error) {
-    // Chamar a função QueryBanco para obter os dados
-    data, err := mc.QueryBanco(ctx)
-    if err != nil {
-        return nil, err
-    }
-
-    // Retornar os dados obtidos da consulta
-    return data, nil
-}
-
-
-// TripData struct para representar os dados de uma viagem
-type TripData struct {
-	DepartureDatetime string  `json:"Departure_Datetime"`
-	TotalDistanceKm   float64 `json:"totalDistance_km"`
-	TripID            int     `json:"TripID"`
-	ArrivalDatetime   string  `json:"Arrival_Datetime"`
-}
-
-// Transaction representa uma transação no livro-razão
-type Transaction struct {
-	Timestamp time.Time `json:"timestamp"`
-	Data      string    `json:"data"`
-}
-
-// Block representa um bloco contendo várias transações
-type Block struct {
-	Transactions []Transaction `json:"transactions"`
-}
-
-// Blockchain representa uma sequência de blocos
-type Blockchain struct {
-	Blocks []Block `json:"blocks"`
-}
-
-// Bloco atual
-var currentBlock *Block
-
-// Último carimbo de data/hora de transação
-var lastTransactionTimestamp time.Time
-
-// Máximo de transações por bloco
-const maxTransactionsPerBlock = 10
-
-// Limite de tempo do bloco (10 minutos)
-const blockTimeLimit = 10 * time.Minute
-
-// MyContract define o chaincode para consulta de dados do MySQL e transações
+// MyContract é o contrato inteligente para o Hyperledger Fabric
 type MyContract struct {
-	contractapi.Contract
+        contractapi.Contract
 }
 
+// TripData estrutura para representar os dados de uma viagem
+type TripData struct {
+        ID                string  `json:"ID"`
+        DepartureDatetime string  `json:"Departure_Datetime"`
+        TotalDistanceKm   float64 `json:"totalDistance_km"`
+        TripID            int     `json:"TripID"`
+        ArrivalDatetime   string  `json:"Arrival_Datetime"`
+}
+
+// GetAllAssets retorna todos os ativos encontrados no estado mundial
+func (mc *MyContract) GetAllAssets(ctx contractapi.TransactionContextInterface) ([]*TripData, error) {
+        resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
+        if err != nil {
+                return nil, fmt.Errorf("falha ao obter ativos: %v", err)
+        }
+        defer resultsIterator.Close()
+
+        var assets []*TripData
+        for resultsIterator.HasNext() {
+                queryResponse, err := resultsIterator.Next()
+                if err != nil {
+                        return nil, fmt.Errorf("falha ao iterar sobre resultados de consulta: %v", err)
+                }
+
+                var asset TripData
+                err = json.Unmarshal(queryResponse.Value, &asset)
+                if err != nil {
+                        return nil, fmt.Errorf("falha ao fazer unmarshal dos dados de viagem: %v", err)
+                }
+                assets = append(assets, &asset)
+        }
+
+        return assets, nil
+}
+
+// InitLedger inicializa o estado mundial com dados de uma consulta SQL
 func (mc *MyContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
-    // Pode adicionar lógica de inicialização do ledger aqui, se necessário
-    fmt.Println("Inicializando o ledger")
-    return nil
+        assets := []TripData{
+                {ID: "asset1", DepartureDatetime: "blue", TotalDistanceKm: 5, TripID: 1, ArrivalDatetime: "test"},
+                {ID: "asset2", DepartureDatetime: "red", TotalDistanceKm: 8, TripID: 2, ArrivalDatetime: "sample"},
+        }
+
+        db, err := sql.Open("mysql", "root:movepass@tcp(192.168.10.24:3306)/moveuff")
+        if err != nil {
+                return fmt.Errorf("falha ao conectar ao banco de dados: %v", err)
+        }
+        defer db.Close()
+
+        queryToday := `
+        SELECT
+            departure.id AS Departure_Datetime,
+            trips.totalDistance_km,
+            trips.id AS TripID,
+            arrival.id AS Arrival_Datetime
+        FROM trip_x_parkingslot_departures AS departure
+        JOIN trips ON departure.Trips_id = trips.id
+        JOIN trip_x_parkingslot_arrivals AS arrival ON arrival.Trips_id = trips.id
+        WHERE DATE(departure.id) = CURDATE() AND DATE(arrival.id) = CURDATE()
+    `
+
+        rows, err := db.Query(queryToday)
+        if err != nil {
+                return fmt.Errorf("falha ao executar a query: %v", err)
+        }
+        defer rows.Close()
+
+        var tripDataList []map[string]interface{}
+
+        for rows.Next() {
+                var departureDatetime string
+                var totalDistanceKm float64
+                var tripID int
+                var arrivalDatetime string
+
+                err := rows.Scan(&departureDatetime, &totalDistanceKm, &tripID, &arrivalDatetime)
+                if err != nil {
+                        return fmt.Errorf("falha ao ler os valores do resultado: %v", err)
+                }
+
+                rowData := map[string]interface{}{
+                        "Departure_Datetime": departureDatetime,
+                        "totalDistance_km":   totalDistanceKm,
+                        "TripID":             tripID,
+                        "Arrival_Datetime":   arrivalDatetime,
+                }
+
+                tripDataList = append(tripDataList, rowData)
+        }
+
+        for i, data := range tripDataList {
+                asset := TripData{
+                        ID:                fmt.Sprintf("asset%d", i+1),
+                        DepartureDatetime: data["Departure_Datetime"].(string),
+                        TotalDistanceKm:   data["totalDistance_km"].(float64),
+                        TripID:            data["TripID"].(int),
+                        ArrivalDatetime:   data["Arrival_Datetime"].(string),
+                }
+                assets = append(assets, asset)
+        }
+
+        for _, asset := range assets {
+                assetJSON, err := json.Marshal(asset)
+                if err != nil {
+                        return fmt.Errorf("falha ao converter ativo para JSON: %v", err)
+                }
+
+                err = ctx.GetStub().PutState(asset.ID, assetJSON)
+                if err != nil {
+                        return fmt.Errorf("falha ao colocar no estado mundial: %v", err)
+                }
+        }
+
+        return nil
 }
 
-// QueryBanco function to query data from MySQL and add transactions to the ledger
-func (mc *MyContract) QueryBanco(ctx contractapi.TransactionContextInterface) ([]byte, error) {
-	// Configurações para conexão MySQL
-	datasource := "root:movepass@tcp(localhost:3306)/moveuff" // Modifique conforme necessário
-	caName := "your_ca_name"                                  // Modifique conforme necessário
-	clientTLSConfig := &tls.ClientTLSConfig{}                  // Modifique conforme necessário
-	csp := &yourBCCSPImplementation{}                         // Modifique conforme necessário
-	metrics := &db.Metrics{}                                   // Modifique conforme necessário
+// colar
 
-	// Crie uma nova instância da biblioteca MySQL personalizada
-	mysqlDB := mysql.NewDB(datasource, caName, clientTLSConfig, csp, metrics)
+// CreateTripData emite novos dados de viagem para o estado mundial com os detalhes fornecidos.
+func (mc *MyContract) CreateTripData(ctx contractapi.TransactionContextInterface, id string, departureDatetime string, totalDistanceKm float64, tripID int, arrivalDatetime string) error {
+        exists, err := mc.TripDataExists(ctx, id)
+        if err != nil {
+                return fmt.Errorf("falha ao verificar a existência de dados de viagem: %v", err)
+        }
+        if exists {
+                return fmt.Errorf("os dados de viagem %s já existem", id)
+        }
 
-	// Conecte ao servidor MySQL
-	err := mysqlDB.Connect()
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-	defer mysqlDB.SqlxDB.Close()
+        tripData := TripData{
+                ID:                id,
+                DepartureDatetime: departureDatetime,
+                TotalDistanceKm:   totalDistanceKm,
+                TripID:            tripID,
+                ArrivalDatetime:   arrivalDatetime,
+        }
+        tripDataJSON, err := json.Marshal(tripData)
+        if err != nil {
+                return fmt.Errorf("falha ao converter dados de viagem para JSON: %v", err)
+        }
 
-	// Ping o banco de dados para garantir a conexão
-	err = mysqlDB.PingContext(context.Background())
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-
-	// Query SQL
-	queryToday := `
-	SELECT 
-		departure.id AS Departure_Datetime, 
-		trips.totalDistance_km, 
-		trips.id AS TripID, 
-		arrival.id AS Arrival_Datetime
-	FROM trip_x_parkingslot_departures AS departure
-	JOIN trips ON departure.Trips_id = trips.id
-	JOIN trip_x_parkingslot_arrivals AS arrival ON arrival.Trips_id = trips.id
-	WHERE DATE(departure.id) = CURDATE() AND DATE(arrival.id) = CURDATE()
-`
-
-	// Executar a query
-	rows, err := mysqlDB.SqlxDB.QueryxContext(context.Background(), queryToday)
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-	defer rows.Close()
-
-	// Variável para armazenar o dicionário JSON
-	resultDict := make(map[int]map[string]interface{})
-
-	// Variável para armazenar a soma de totalDistance_km
-	totalDistanceSum := 0.0
-
-	for rows.Next() {
-		var departureDatetime string // Modificado para usar string
-		var totalDistanceKm float64
-		var tripID int
-		var arrivalDatetime string // Modificado para usar string
-
-		// Ler os valores do resultado da query
-		err := rows.Scan(&departureDatetime, &totalDistanceKm, &tripID, &arrivalDatetime)
-		if err != nil {
-			log.Fatal(err)
-			return nil, err
-		}
-
-		// Criar um mapa com os dados da linha atual
-		rowData := map[string]interface{}{
-			"Departure_Datetime": departureDatetime,
-			"totalDistance_km":   totalDistanceKm,
-			"TripID":             tripID,
-			"Arrival_Datetime":   arrivalDatetime,
-		}
-
-		// Adicionar os dados ao objeto do dicionário JSON
-		resultDict[tripID] = rowData
-
-		// Somar o valor de totalDistance_km
-		totalDistanceSum += totalDistanceKm
-	}
-
-	// Verificar erros na iteração sobre as linhas
-	if err := rows.Err(); err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-
-	// Imprimir o dicionário JSON
-	jsonResult, err := json.MarshalIndent(resultDict, "", "    ")
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
-	fmt.Println(string(jsonResult))
-
-	// Imprimir a soma de totalDistance_km
-	fmt.Printf("Soma de totalDistance_km: %.2f\n", totalDistanceSum)
-
-	return nil, nil
+        return ctx.GetStub().PutState(id, tripDataJSON)
 }
 
-// AdicionarTransacao adiciona uma transação ao bloco atual
-func (mc *MyContract) AdicionarTransacao(ctx contractapi.TransactionContextInterface, data string) error {
-	if currentBlock == nil {
-		currentBlock = &Block{
-			Transactions: []Transaction{},
-		}
-	}
+// ReadTripData retorna os dados de viagem armazenados no estado mundial com o ID fornecido.
+func (mc *MyContract) ReadTripData(ctx contractapi.TransactionContextInterface, id string) (*TripData, error) {
+        tripDataJSON, err := ctx.GetStub().GetState(id)
+        if err != nil {
+                return nil, fmt.Errorf("falha ao ler do estado mundial: %v", err)
+        }
+        if tripDataJSON == nil {
+                return nil, fmt.Errorf("os dados de viagem %s não existem", id)
+        }
 
-	transaction := Transaction{
-		Timestamp: time.Now(),
-		Data:      data,
-	}
-
-	currentBlock.Transactions = append(currentBlock.Transactions, transaction)
-	lastTransactionTimestamp = transaction.Timestamp
-
-	// Verificar se o número máximo de transações por bloco foi atingido
-	if len(currentBlock.Transactions) >= maxTransactionsPerBlock {
-		// Fechar o bloco e adicionar ao ledger
-		err := mc.FecharBloco(ctx)
-		if err != nil {
-			return fmt.Errorf("Erro ao fechar o bloco: %v", err)
-		}
-	}
-
-	return nil
+        var tripData TripData
+        err = json.Unmarshal(tripDataJSON, &tripData)
+        if err != nil {
+                return nil, fmt.Errorf("falha ao fazer unmarshal dos dados de viagem: %v", err)
+        }
+	
+        return &tripData, nil
 }
 
-// FecharBloco fecha o bloco atual se o limite de tempo ou número máximo de transações for atingido
-func (mc *MyContract) FecharBloco(ctx contractapi.TransactionContextInterface) error {
-	// Verificar se há transações no bloco atual
-	if currentBlock == nil || len(currentBlock.Transactions) == 0 {
-		return nil // Nenhum bloco a fechar
-	}
+// UpdateTripData atualiza dados de viagem existentes no estado mundial com os parâmetros fornecidos.
+func (mc *MyContract) UpdateTripData(ctx contractapi.TransactionContextInterface, id string, departureDatetime string, totalDistanceKm float64, tripID int, arrivalDatetime string) error {
+        exists, err := mc.TripDataExists(ctx, id)
+        if err != nil {
+                return fmt.Errorf("falha ao verificar a existência de dados de viagem: %v", err)
+        }
+        if !exists {
+                return fmt.Errorf("os dados de viagem %s não existem", id)
+        }
 
-	// Verificar se o tempo desde a última transação ultrapassou o limite
-	if time.Since(lastTransactionTimestamp) >= blockTimeLimit {
-		// Criar um novo bloco
-		currentBlock = &Block{
-			Transactions: []Transaction{},
-		}
-		return nil
-	}
+        // Sobrescrever dados de viagem originais com novos dados de viagem
+        tripData := TripData{
+                ID:                id,
+                DepartureDatetime: departureDatetime,
+                TotalDistanceKm:   totalDistanceKm,
+                TripID:            tripID,
+                ArrivalDatetime:   arrivalDatetime,
+        }
+        tripDataJSON, err := json.Marshal(tripData)
+        if err != nil {
+                return fmt.Errorf("falha ao converter dados de viagem para JSON: %v", err)
+        }
 
-	// Obter a blockchain do estado
-	blockchainJSON, err := ctx.GetStub().GetState("blockchain")
-	if err != nil {
-		return fmt.Errorf("Erro ao obter blockchain do estado: %v", err)
-	}
-
-	var blockchain Blockchain
-	if blockchainJSON != nil {
-		err = json.Unmarshal(blockchainJSON, &blockchain)
-		if err != nil {
-			return fmt.Errorf("Erro ao deserializar blockchain do JSON: %v", err)
-		}
-	}
-
-	// Adicionar o bloco ao blockchain
-	blockchain.Blocks = append(blockchain.Blocks, *currentBlock)
-
-	// Serializar o blockchain para JSON
-	blockchainJSON, err = json.Marshal(blockchain)
-	if err != nil {
-		return fmt.Errorf("Erro ao serializar blockchain para JSON: %v", err)
-	}
-
-	// Calcular o hash do bloco usando SHA-256
-	hash := calcularHash(blockchainJSON)
-
-	// Imprimir o hash do bloco
-	fmt.Printf("Hash do Bloco: %s\n", hash)
-
-	// Adicionar o blockchain ao estado
-	err = ctx.GetStub().PutState("blockchain", blockchainJSON)
-	if err != nil {
-		return fmt.Errorf("Erro ao adicionar blockchain ao estado: %v", err)
-	}
-
-	currentBlock = &Block{
-		Transactions: []Transaction{},
-	}
-
-	return nil
+        return ctx.GetStub().PutState(id, tripDataJSON)
 }
 
-// Função auxiliar para calcular o hash usando SHA-256
-func calcularHash(data []byte) string {
-	hasher := sha256.New()
-	hasher.Write(data)
-	return hex.EncodeToString(hasher.Sum(nil))
+// DeleteTripData exclui dados de viagem fornecidos do estado mundial.
+func (mc *MyContract) DeleteTripData(ctx contractapi.TransactionContextInterface, id string) error {
+        exists, err := mc.TripDataExists(ctx, id)
+        if err != nil {
+                return fmt.Errorf("falha ao verificar a existência de dados de viagem: %v", err)
+        }
+        if !exists {
+                return fmt.Errorf("os dados de viagem %s não existem", id)
+        }
+
+        return ctx.GetStub().DelState(id)
 }
 
-func main() {
-	Chaincodemove, err := contractapi.NewChaincode(&MyContract{})
-	if err != nil {
-		fmt.Printf("Erro ao criar o chaincode: %s", err)
-		return
-	}
+// TripDataExists retorna true quando dados de viagem com o ID fornecido existem no estado mundial.
+func (mc *MyContract) TripDataExists(ctx contractapi.TransactionContextInterface, id string) (bool, error) {
+        tripDataJSON, err := ctx.GetStub().GetState(id)
+        if err != nil {
+                return false, fmt.Errorf("falha ao ler do estado mundial: %v", err)
+        }
 
-	if err := Chaincodemove.Start(); err != nil {
-		fmt.Printf("Erro ao iniciar o chaincode: %s", err)
-	}
+        return tripDataJSON != nil, nil
+}
+
+// TransferTripData atualiza o campo tripID dos dados de viagem com o ID fornecido no estado mundial e retorna o antigo trip ID.
+func (mc *MyContract) TransferTripData(ctx contractapi.TransactionContextInterface, id string, newTripID int) (int, error) {
+        tripData, err := mc.ReadTripData(ctx, id)
+        if err != nil {
+                return 0, fmt.Errorf("falha ao transferir dados de viagem: %v", err)
+        }
+
+        oldTripID := tripData.TripID
+        tripData.TripID = newTripID
+
+        tripDataJSON, err := json.Marshal(tripData)
+        if err != nil {
+                return 0, fmt.Errorf("falha ao converter dados de viagem para JSON: %v", err)
+        }
+
+        err = ctx.GetStub().PutState(id, tripDataJSON)
+        if err != nil {
+                return 0, fmt.Errorf("falha ao transferir dados de viagem para o estado mundial: %v", err)
+        }
+
+        return oldTripID, nil
+}
+
+// GetAllTripData retorna todos os dados de viagem encontrados no estado mundial.
+func (mc *MyContract) GetAllTripData(ctx contractapi.TransactionContextInterface) ([]*TripData, error) {
+        resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
+        if err != nil {
+                return nil, fmt.Errorf("falha ao obter dados de viagem: %v", err)
+        }
+        defer resultsIterator.Close()
+
+        var tripDataList []*TripData
+        for resultsIterator.HasNext() {
+                queryResponse, err := resultsIterator.Next()
+                if err != nil {
+                        return nil, fmt.Errorf("falha ao iterar sobre resultados de consulta: %v", err)
+                }
+
+                var tripData TripData
+                err = json.Unmarshal(queryResponse.Value, &tripData)
+                if err != nil {
+                        return nil, fmt.Errorf("falha ao fazer unmarshal dos dados de viagem: %v", err)
+                }
+                tripDataList = append(tripDataList, &tripData)
+        }
+
+        return tripDataList, nil
 }
