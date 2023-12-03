@@ -51,22 +51,11 @@ func (mc *MyContract) GetAllAssets(ctx contractapi.TransactionContextInterface) 
         return assets, nil
 }
 
-// InitLedger inicializa o estado mundial com dados de uma consulta SQL
+// InitLedger inicializa o estado mundial chamando a função QueryDatabase
 func (mc *MyContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
-        mc.Assets = []*TripData{
-                {ID: "asset1", DepartureDatetime: "blue", TotalDistanceKm: 5, TripID: 1, ArrivalDatetime: "test"},
-                {ID: "asset2", DepartureDatetime: "red", TotalDistanceKm: 8, TripID: 2, ArrivalDatetime: "sample"},
-        }
-        for _, asset := range mc.Assets {
-                assetJSON, err := json.Marshal(asset)
-                if err != nil {
-                        return err
-                }
-
-                err = ctx.GetStub().PutState(asset.ID, assetJSON)
-                if err != nil {
-                        return fmt.Errorf("failed to put to world state. %v", err)
-                }
+        // Chama a função QueryDatabase para obter os dados do banco de dados
+        if err := mc.QueryDatabase(ctx); err != nil {
+                return fmt.Errorf("falha ao inicializar o estado mundial usando QueryDatabase: %v", err)
         }
 
         return nil
@@ -165,51 +154,23 @@ func (mc *MyContract) ReadTripData(ctx contractapi.TransactionContextInterface, 
         return &tripData, nil
 }
 
-// DeleteTripData exclui dados de viagem fornecidos do estado mundial.
-func (mc *MyContract) DeleteTripData(ctx contractapi.TransactionContextInterface, id string) error {
-        exists, err := mc.TripDataExists(ctx, id)
-        if err != nil {
-                return fmt.Errorf("falha ao verificar a existência de dados de viagem: %v", err)
+// InitLedger inicializa o estado mundial com dados de uma consulta SQL
+func (mc *MyContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
+        mc.Assets = []*TripData{
+                {ID: "asset1", DepartureDatetime: "blue", TotalDistanceKm: 5, TripID: 1, ArrivalDatetime: "test"},
+                {ID: "asset2", DepartureDatetime: "red", TotalDistanceKm: 8, TripID: 2, ArrivalDatetime: "sample"},
         }
-        if !exists {
-                return fmt.Errorf("os dados de viagem %s não existem", id)
-        }
-
-        return ctx.GetStub().DelState(id)
-}
-
-// TripDataExists retorna true quando dados de viagem com o ID fornecido existem no estado mundial.
-func (mc *MyContract) TripDataExists(ctx contractapi.TransactionContextInterface, id string) (bool, error) {
-        tripDataJSON, err := ctx.GetStub().GetState(id)
-        if err != nil {
-                return false, fmt.Errorf("falha ao ler do estado mundial: %v", err)
-        }
-
-        return tripDataJSON != nil, nil
-}
-
-// GetAllTripData retorna todos os dados de viagem encontrados no estado mundial.
-func (mc *MyContract) GetAllTripData(ctx contractapi.TransactionContextInterface) ([]*TripData, error) {
-        resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
-        if err != nil {
-                return nil, fmt.Errorf("falha ao obter dados de viagem: %v", err)
-        }
-        defer resultsIterator.Close()
-
-        var tripDataList []*TripData
-        for resultsIterator.HasNext() {
-                queryResponse, err := resultsIterator.Next()
+        for _, asset := range mc.Assets {
+                assetJSON, err := json.Marshal(asset)
                 if err != nil {
-                        return nil, fmt.Errorf("falha ao iterar sobre resultados de consulta: %v", err)
+                        return err
                 }
 
-                var tripData TripData
-                err = json.Unmarshal(queryResponse.Value, &tripData)
+                err = ctx.GetStub().PutState(asset.ID, assetJSON)
                 if err != nil {
-                        return nil, fmt.Errorf("falha ao fazer unmarshal dos dados de viagem: %v", err)
+                        return fmt.Errorf("failed to put to world state. %v", err)
                 }
-                tripDataList = append(tripDataList, &tripData)
         }
 
-        return tripDataList, nil
+        return nil
 }
